@@ -1,4 +1,5 @@
 require './config/worker_init'
+require './config/sequel'
 
 class ApiRequestJob
   include Sidekiq::Worker
@@ -53,7 +54,9 @@ class ApiRequestJob
     job_info.merge!(
       'caller' => data['caller'],
       'request_id' => data['request_id'],
-      'counter' => 0
+      'counter' => 0,
+      'channel_id' => data['channel_id'],
+      'channel_type' => data['channel_type']
     )
 
     puts "sending to CI....."
@@ -84,10 +87,11 @@ class ApiRequestJob
       userpwd: "#{Broker.network_settings['user']}:#{Broker.network_settings['pwd']}",
       headers: { 'Content-Type' => "application/json"}
     )
+
     analysis = JSON.parse(response.response_body)
 
     puts "-------------ANALYSIS INFO-------------"
-    puts analysis.inspect
+    #puts analysis.inspect
 
     case analysis['status']
     when 'pending'
@@ -95,9 +99,18 @@ class ApiRequestJob
     when 'completed'
       analysis.merge!(
         'caller' => job_info['caller'],
-        'request_id' => job_info['request_id']
+        'request_id' => job_info['request_id'],
+        'channel_id' => job_info['channel_id'],
+        'channel_type' => job_info['channel_type']
       )
-      push_analysis_back(analysis)
+      puts analysis.inspect
+      # push_analysis_back(analysis)
+
+      # Stores topTerms into db
+      analysis['topTerms'].each do |item|
+        KeyTerm.insert(:term => item['term'], :count => item['count'], :account_id => item['id'], :channel_id => analysis['channel_id'], :channel_type => analysis['channel_type'], :created_at => DateTime.now.seconds_since_midnight)
+      end
+
       return false
     end
   end
